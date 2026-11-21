@@ -1,8 +1,9 @@
 package moe.shizuku.manager
 
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
-import androidx.core.content.ContextCompat
+import android.app.Activity
+import android.app.KeyguardManager
+import android.content.Context
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
 
 object AppLock {
@@ -10,32 +11,33 @@ object AppLock {
         private set
 
     fun prompt(activity: FragmentActivity, onSuccess: () -> Unit) {
-        val can = BiometricManager.from(activity).canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or
-            BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        )
-        if (can != BiometricManager.BIOMETRIC_SUCCESS) {
-            unlocked = true; onSuccess(); return
+        val km = activity.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        if (km == null || !km.isDeviceSecure) {
+            unlocked = true
+            onSuccess()
+            return
         }
-        BiometricPrompt(
-            activity, ContextCompat.getMainExecutor(activity),
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    unlocked = true; onSuccess()
-                }
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    activity.finish()
-                }
+
+        val launcher = activity.registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                unlocked = true
+                onSuccess()
+            } else {
+                activity.finish()
             }
-        ).authenticate(
-            BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Unlock")
-                .setSubtitle("Fingerprint ya phone ka PIN daalo")
-                .setAllowedAuthenticators(
-                    BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
-                )
-                .build()
+        }
+
+        val intent = km.createConfirmDeviceCredentialIntent(
+            "Unlock",
+            "Fingerprint ya phone ka PIN daalo"
         )
+        if (intent == null) {
+            unlocked = true
+            onSuccess()
+        } else {
+            launcher.launch(intent)
+        }
     }
 }
