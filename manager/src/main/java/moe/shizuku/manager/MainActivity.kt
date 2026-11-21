@@ -68,6 +68,10 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null && !AppLock.unlocked) {
+            AppLock.prompt(this) { recreate() }
+            return
+        }
         enableEdgeToEdge()
         handleIntent(intent)
 

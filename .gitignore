@@ -20,4 +20,5 @@ __pycache__/
 /key.jks
 *.jks
 *.keystore
-*.p12
+*.p12key.b64
+*.jks
