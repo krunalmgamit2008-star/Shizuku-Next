@@ -1310,55 +1310,6 @@ fun SettingsScreen(
                             }
                         )
                     }
-                    item {
-                        SegmentedListItem(
-                            centerSlots = true,
-                            leadingContent = { SettingsIcon(Icons.Outlined.MenuBook) },
-                            headlineContent = { Text(stringResource(R.string.settings_help)) },
-                            trailingContent = {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                            },
-                            onClick = {
-                                CustomTabsHelper.launchUrlOrCopy(context, context.getString(R.string.help_url))
-                            }
-                        )
-                    }
-                    item {
-                        SegmentedListItem(
-                            centerSlots = true,
-                            leadingContent = { SettingsIcon(Icons.Outlined.BugReport) },
-                            headlineContent = { Text(stringResource(R.string.settings_report_bug)) },
-                            trailingContent = {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                            },
-                            onClick = {
-                                context.startActivity(Intent(context, BugReportDialogActivity::class.java))
-                            }
-                        )
-                    }
-                    item {
-                        SegmentedListItem(
-                            centerSlots = true,
-                            leadingContent = { SettingsIcon(Icons.Outlined.Translate) },
-                            headlineContent = {
-                                Text(stringResource(R.string.settings_translate))
-                            },
-                            // The note says where the translating happens, because the row leads
-                            // out of the app rather than to another screen of it.
-                            supportingContent = {
-                                Text(stringResource(R.string.settings_translate_note))
-                            },
-                            trailingContent = {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                            },
-                            onClick = {
-                                CustomTabsHelper.launchUrlOrCopy(
-                                    context,
-                                    context.getString(R.string.crowdin_url)
-                                )
-                            }
-                        )
-                    }
                 }
             }
             // Nothing to credit is better than an empty card: a build with no snapshot at all - an
