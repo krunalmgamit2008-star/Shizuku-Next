@@ -194,7 +194,7 @@ fun ShizukuTheme(content: @Composable () -> Unit) {
             surfaceContainerHighest = Color.Black,
         )
         else -> baseScheme
-    }.let { if (highContrast) it.withHighContrast(darkTheme) else it }
+    }.let { if (highContrast) it.withHighContrast(darkTheme) else it }.let { it.withGlass(darkTheme) }
 
     // Match the status/navigation bar icons to the app's theme, not the system's;
     // otherwise a white in-app theme gets light icons on a white bar (invisible).
@@ -251,3 +251,13 @@ private fun Context.findActivity(): Activity? {
     }
     return context as? Activity
 }
+
+/** Glass mode: translucent containers so the page gradient shows through them. */
+private fun ColorScheme.withGlass(dark: Boolean): ColorScheme = copy(
+    surface = surface.copy(alpha = if (dark) 0.55f else 0.65f),
+    surfaceContainerLowest = surfaceContainerLowest.copy(alpha = if (dark) 0.45f else 0.55f),
+    surfaceContainerLow = surfaceContainerLow.copy(alpha = if (dark) 0.50f else 0.60f),
+    surfaceContainer = surfaceContainer.copy(alpha = if (dark) 0.55f else 0.65f),
+    surfaceContainerHigh = surfaceContainerHigh.copy(alpha = if (dark) 0.60f else 0.70f),
+    surfaceContainerHighest = surfaceContainerHighest.copy(alpha = if (dark) 0.65f else 0.75f),
+)

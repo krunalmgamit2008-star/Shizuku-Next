@@ -295,6 +295,15 @@ fun ShizukuApp(onRunSetup: () -> Unit) {
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f),
+                                Color.Transparent
+                            )
+                        )
+                    )
             ) {
                 // Both the open detail and the pager live here, above the switch between
                 // the two, for two reasons: the pager used to be remembered inside the tab
