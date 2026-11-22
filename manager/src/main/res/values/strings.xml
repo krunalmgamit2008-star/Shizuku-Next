@@ -691,6 +691,7 @@
     <string name="settings_backup_restore_action">Restore</string>
     <string name="settings_backup_restored">Restored %1$d settings. Restart Shizuku to apply start changes.</string>
     <string name="settings_backup_restore_failed">Could not restore the backup.</string>
+    <string name="lab_vault">Vault</string>
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_section_appearance_summary">Theme, colors, language and navigation bar</string>
     <string name="settings_section_about">About</string>

@@ -116,7 +116,9 @@ import moe.shizuku.manager.ShizukuSettings
 import moe.shizuku.manager.ui.component.TelevisionFocusOutline
 import moe.shizuku.manager.ui.component.televisionFocusShape
 import moe.shizuku.manager.ui.screen.AccessibilityScreen
+import moe.shizuku.manager.ui.component.iconPaletteColor
 import moe.shizuku.manager.ui.screen.AppsScreen
+import moe.shizuku.manager.ui.screen.VaultScreen
 import moe.shizuku.manager.ui.screen.ActivitiesScreen
 import moe.shizuku.manager.ui.screen.FilesScreen
 import moe.shizuku.manager.ui.screen.ForceDarkScreen
@@ -161,6 +163,7 @@ enum class Detail(
 ) {
     APP_OPS,
     SHELL,
+    VAULT,
     FIREWALL(AppToggleFeature.FIREWALL),
     AUTOSTART(AppToggleFeature.AUTOSTART),
 
@@ -436,6 +439,11 @@ fun ShizukuApp(onRunSetup: () -> Unit) {
                             )
 
                             Detail.POWER -> PowerScreen(
+                                bottomPadding = 0.dp,
+                                onBack = { detail = null }
+                            )
+
+                            Detail.VAULT -> VaultScreen(
                                 bottomPadding = 0.dp,
                                 onBack = { detail = null }
                             )
@@ -890,6 +898,7 @@ private fun MainTabs(
                                         ) { isSelected ->
                                             Icon(
                                                 if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                                tint = iconPaletteColor(tab.selectedIcon.name),
                                                 contentDescription = stringResource(tab.label)
                                             )
                                         }
@@ -1150,6 +1159,7 @@ private fun TelevisionTabs(
                         ) {
                             Icon(
                                 if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                                tint = iconPaletteColor(tab.selectedIcon.name),
                                 contentDescription = null
                             )
                         }
