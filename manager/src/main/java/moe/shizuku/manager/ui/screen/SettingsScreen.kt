@@ -1858,7 +1858,7 @@ fun SettingsScreen(
             confirmButton = {
                 PillButton(onClick = {
                     updateDialog = false
-                    scope.launch { runCatching { UpdateHelper.checkAndInstallUpdates() } }
+                    // manual update check disabled in this build
                 }) { Text(stringResource(R.string.check_for_updates_now)) }
             }
         )

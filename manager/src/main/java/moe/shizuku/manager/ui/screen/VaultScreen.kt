@@ -2,6 +2,8 @@ package moe.shizuku.manager.ui.screen
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
@@ -10,6 +12,8 @@ import android.view.WindowManager
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
@@ -46,6 +51,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -89,6 +97,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
     // True while the file picker or another app is on screen: the app goes to the background for
     // that, and locking then would drop the key the picker is about to need.
     var external by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf<Bitmap?>(null) }
     var folderName by remember { mutableStateOf("") }
 
     // No screenshots and no screen recording while the vault is on screen: the window is marked
@@ -296,15 +305,34 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                             val current = key ?: return@Button
                                             busy = true
                                             scope.launch {
-                                                external = true
-                                                val failure = withContext(Dispatchers.IO) {
-                                                    runCatching { openItem(context, current, item) }
-                                                        .exceptionOrNull()
-                                                }
-                                                external = false
-                                                if (failure != null) {
-                                                    error = failure.message
-                                                        ?: "Could not open the file"
+                                                if (isImage(item.name)) {
+                                                    // Images are shown inside the vault: handing them
+                                                    // to a gallery would leave a decrypted copy in
+                                                    // another app's hands.
+                                                    val bitmap = withContext(Dispatchers.IO) {
+                                                        runCatching {
+                                                            BitmapFactory.decodeFile(
+                                                                decryptToCache(context, current, item)
+                                                                    .absolutePath
+                                                            )
+                                                        }.getOrNull()
+                                                    }
+                                                    if (bitmap == null) {
+                                                        error = "This image could not be shown"
+                                                    } else {
+                                                        preview = bitmap
+                                                    }
+                                                } else {
+                                                    external = true
+                                                    val failure = withContext(Dispatchers.IO) {
+                                                        runCatching { openItem(context, current, item) }
+                                                            .exceptionOrNull()
+                                                    }
+                                                    external = false
+                                                    if (failure != null) {
+                                                        error = failure.message
+                                                            ?: "Could not open the file"
+                                                    }
                                                 }
                                                 busy = false
                                             }
@@ -337,6 +365,27 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                 error?.let {
                     Spacer(Modifier.height(12.dp))
                     Text(it, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
+        preview?.let { bitmap ->
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+                IconButton(
+                    onClick = { preview = null },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Close",
+                        tint = Color.White
+                    )
                 }
             }
         }
@@ -482,12 +531,22 @@ private fun mimeOf(name: String): String {
     return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
 }
 
-private fun openItem(context: Context, key: SecretKey, item: VaultItem) {
+private fun isImage(name: String): Boolean {
+    val extension = name.substringAfterLast('.', "").lowercase()
+    return extension in setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif")
+}
+
+private fun decryptToCache(context: Context, key: SecretKey, item: VaultItem): File {
     val dir = File(context.cacheDir, "vault").apply { mkdirs() }
     val out = File(dir, item.name)
     out.outputStream().use { target ->
         VaultCrypto.decrypt(key, VaultCrypto.fileFor(context, item.id), target)
     }
+    return out
+}
+
+private fun openItem(context: Context, key: SecretKey, item: VaultItem) {
+    val out = decryptToCache(context, key, item)
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", out)
     val intent = Intent(Intent.ACTION_VIEW)
         .setDataAndType(uri, mimeOf(item.name))
