@@ -1280,7 +1280,7 @@ fun SettingsScreen(
                             centerSlots = true,
                             leadingContent = { SettingsIcon(Icons.Outlined.Info) },
                             headlineContent = { Text(stringResource(R.string.app_name)) },
-                            supportingContent = { Text(BuildConfig.VERSION_NAME) }
+                            supportingContent = { Text(BuildConfig.VERSION_NAME + " · krunal.m.gamitl3o8@zohomail.in") }
                         )
                     }
                     item {
