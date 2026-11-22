@@ -86,6 +86,9 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
     var contents by remember { mutableStateOf(VaultContents()) }
     var folder by remember { mutableStateOf("") }
     var showNewFolder by remember { mutableStateOf(false) }
+    // True while the file picker or another app is on screen: the app goes to the background for
+    // that, and locking then would drop the key the picker is about to need.
+    var external by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("") }
 
     // No screenshots and no screen recording while the vault is on screen: the window is marked
@@ -101,7 +104,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
     // again rather than staying open in the background.
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
+            if (event == Lifecycle.Event.ON_STOP && !external) {
                 key = null
                 password = ""
                 confirm = ""
@@ -123,6 +126,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val current = key
+        external = false
         if (uri == null) {
             status = "No file was chosen"
             return@rememberLauncherForActivityResult
@@ -264,7 +268,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                 style = MaterialTheme.typography.bodySmall
                             )
                             Button(
-                                onClick = { picker.launch(arrayOf("*/*")) },
+                                onClick = { external = true; picker.launch(arrayOf("*/*")) },
                                 enabled = !busy
                             ) {
                                 Icon(Icons.Filled.Add, contentDescription = null)
@@ -292,10 +296,12 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                             val current = key ?: return@Button
                                             busy = true
                                             scope.launch {
+                                                external = true
                                                 val failure = withContext(Dispatchers.IO) {
                                                     runCatching { openItem(context, current, item) }
                                                         .exceptionOrNull()
                                                 }
+                                                external = false
                                                 if (failure != null) {
                                                     error = failure.message
                                                         ?: "Could not open the file"
@@ -337,7 +343,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
 
         if (key != null) {
             FloatingActionButton(
-                onClick = { picker.launch(arrayOf("*/*")) },
+                onClick = { external = true; picker.launch(arrayOf("*/*")) },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 24.dp, bottom = bottomPadding + 96.dp)
