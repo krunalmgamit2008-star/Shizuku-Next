@@ -100,6 +100,14 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
     // that, and locking then would drop the key the picker is about to need.
     var external by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
+    // Decrypted copies written for viewing are deleted as soon as they are no longer needed.
+    val tempFiles = remember { mutableListOf<File>() }
+
+    fun clearTemp() {
+        tempFiles.forEach { runCatching { it.delete() } }
+        tempFiles.clear()
+    }
+
     var playing by remember { mutableStateOf<File?>(null) }
     var folderName by remember { mutableStateOf("") }
 
@@ -109,7 +117,10 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
     DisposableEffect(view) {
         val window = view.context.findActivity()?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            clearTemp()
+        }
     }
 
     // Auto-lock: leaving the foreground drops the derived key, so the vault has to be unlocked
@@ -124,6 +135,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                 folder = ""
                 status = null
                 error = null
+                clearTemp()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -197,7 +209,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                         onConfirm = { confirm = it },
                         onCreate = {
                             error = when {
-                                password.length < 6 -> "Use at least 6 characters"
+                                password.length < 12 -> "Use at least 12 characters"
                                 password != confirm -> "The two passwords do not match"
                                 else -> null
                             }
@@ -317,6 +329,8 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                                     if (file == null) {
                                                         error = "This file could not be opened"
                                                     } else {
+                                                        clearTemp()
+                                                        tempFiles.add(file)
                                                         playing = file
                                                     }
                                                 } else if (isImage(item.name)) {
@@ -325,10 +339,12 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                                     // another app's hands.
                                                     val bitmap = withContext(Dispatchers.IO) {
                                                         runCatching {
-                                                            BitmapFactory.decodeFile(
-                                                                decryptToCache(context, current, item)
-                                                                    .absolutePath
-                                                            )
+                                                            val temp = decryptToCache(context, current, item)
+                                                            try {
+                                                                BitmapFactory.decodeFile(temp.absolutePath)
+                                                            } finally {
+                                                                temp.delete()
+                                                            }
                                                         }.getOrNull()
                                                     }
                                                     if (bitmap == null) {
@@ -338,11 +354,13 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                                     }
                                                 } else {
                                                     external = true
+                                                    var handedOver: File? = null
                                                     val failure = withContext(Dispatchers.IO) {
-                                                        runCatching { openItem(context, current, item) }
+                                                        runCatching { handedOver = openItem(context, current, item) }
                                                             .exceptionOrNull()
                                                     }
                                                     external = false
+                                                    handedOver?.let { tempFiles.add(it) }
                                                     if (failure != null) {
                                                         error = failure.message
                                                             ?: "Could not open the file"
@@ -396,7 +414,10 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                     modifier = Modifier.fillMaxSize()
                 )
                 IconButton(
-                    onClick = { playing = null },
+                    onClick = {
+                        playing = null
+                        clearTemp()
+                    },
                     modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
                 ) {
                     Icon(
@@ -592,11 +613,12 @@ private fun decryptToCache(context: Context, key: SecretKey, item: VaultItem): F
     return out
 }
 
-private fun openItem(context: Context, key: SecretKey, item: VaultItem) {
+private fun openItem(context: Context, key: SecretKey, item: VaultItem): File {
     val out = decryptToCache(context, key, item)
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", out)
     val intent = Intent(Intent.ACTION_VIEW)
         .setDataAndType(uri, mimeOf(item.name))
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
     context.startActivity(intent)
+    return out
 }
