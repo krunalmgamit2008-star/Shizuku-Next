@@ -26,7 +26,7 @@ class UpdateCheckWorker(context: Context, params: WorkerParameters) :
     CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        if (!UpdateHelper.isCheckForUpdatesEnabled()) return Result.success()
+        return Result.success() // update check disabled in this build
 
         runCatching { UpdateHelper.checkAndNotify() }
             .onFailure { Diag.warn(TAG, "Background update check failed", it) }

@@ -426,7 +426,7 @@ fun SettingsScreen(
     // of the list costs. Remembered across a rotation, so a wall that was opened stays open, and not
     // across a restart: somebody who opened it once is not asking for it every time.
     var creditsOpen by rememberSaveable { mutableStateOf(false) }
-    val contributors = rememberContributors()
+    val contributors = emptyList<Contributor>()
 
     // Whether the experiment can write the setting it is made of, which is what decides if it
     // is offered at all. It arrives without this screen being told - a running Shizuku grants
