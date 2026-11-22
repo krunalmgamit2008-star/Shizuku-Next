@@ -26,10 +26,16 @@ data class VaultItem(
     val folder: String
 )
 
+/** What the vault holds: the files, and the folders that exist even while they are empty. */
+data class VaultContents(
+    val items: List<VaultItem> = emptyList(),
+    val folders: List<String> = emptyList()
+)
+
 /**
  * The vault: AES-256-GCM files whose key is derived from the master password with PBKDF2 and is
- * never written to disk. The index - the file names, their sizes and their folders - is encrypted
- * with the same key, so the vault's contents cannot be listed without the password either.
+ * never written to disk. The index - file names, sizes, folders and the folder list itself - is
+ * encrypted with the same key, so the vault cannot even be listed without the password.
  */
 object VaultCrypto {
     private const val ITERATIONS = 120_000
@@ -48,7 +54,6 @@ object VaultCrypto {
 
     fun isConfigured(context: Context): Boolean = prefs(context).contains(KEY_SALT)
 
-    /** Sets the master password. The key itself is never stored, only a salt and a verifier. */
     fun createMasterPassword(context: Context, password: String) {
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val key = derive(password, salt)
@@ -68,8 +73,6 @@ object VaultCrypto {
 
     private fun derive(password: String, salt: ByteArray): SecretKey {
         val spec = PBEKeySpec(password.toCharArray(), salt, ITERATIONS, KEY_BITS)
-        // The SHA-1 variant is the one available from API 24; with 120k iterations it is still a
-        // slow derivation, and the AES key it produces is a full 256-bit one.
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1")
         return SecretKeySpec(factory.generateSecret(spec).encoded, "AES")
     }
@@ -120,12 +123,17 @@ object VaultCrypto {
         }
     }
 
-    fun items(context: Context, key: SecretKey): List<VaultItem> {
+    fun contents(context: Context, key: SecretKey): VaultContents {
         val file = File(vaultDir(context), INDEX)
-        if (!file.exists()) return emptyList()
-        val array = JSONArray(String(openBytes(key, file.readBytes()), Charsets.UTF_8))
-        return (0 until array.length()).map { i ->
-            val o = array.getJSONObject(i)
+        if (!file.exists()) return VaultContents()
+        val plain = String(openBytes(key, file.readBytes()), Charsets.UTF_8)
+        // An index written by an older build is a bare array; treat anything unreadable as empty
+        // rather than failing the whole screen.
+        val root = runCatching { JSONObject(plain) }.getOrElse { return VaultContents() }
+        val itemArray = root.optJSONArray("items") ?: JSONArray()
+        val folderArray = root.optJSONArray("folders") ?: JSONArray()
+        val items = (0 until itemArray.length()).map { i ->
+            val o = itemArray.getJSONObject(i)
             VaultItem(
                 id = o.getString("id"),
                 name = o.getString("name"),
@@ -133,12 +141,14 @@ object VaultCrypto {
                 folder = o.optString("folder", "")
             )
         }
+        val folders = (0 until folderArray.length()).map { folderArray.getString(it) }
+        return VaultContents(items, folders)
     }
 
-    private fun saveItems(context: Context, key: SecretKey, items: List<VaultItem>) {
-        val array = JSONArray()
-        items.forEach {
-            array.put(
+    private fun save(context: Context, key: SecretKey, contents: VaultContents) {
+        val itemArray = JSONArray()
+        contents.items.forEach {
+            itemArray.put(
                 JSONObject()
                     .put("id", it.id)
                     .put("name", it.name)
@@ -146,9 +156,31 @@ object VaultCrypto {
                     .put("folder", it.folder)
             )
         }
+        val folderArray = JSONArray()
+        contents.folders.forEach { folderArray.put(it) }
+        val root = JSONObject().put("items", itemArray).put("folders", folderArray)
         File(vaultDir(context), INDEX).writeBytes(
-            sealBytes(key, array.toString().toByteArray(Charsets.UTF_8))
+            sealBytes(key, root.toString().toByteArray(Charsets.UTF_8))
         )
+    }
+
+    fun addFolder(context: Context, key: SecretKey, name: String): VaultContents {
+        val trimmed = name.trim()
+        val contents = contents(context, key)
+        if (trimmed.isEmpty() || contents.folders.contains(trimmed)) return contents
+        val updated = contents.copy(folders = (contents.folders + trimmed).sorted())
+        save(context, key, updated)
+        return updated
+    }
+
+    fun removeFolder(context: Context, key: SecretKey, name: String): VaultContents {
+        val contents = contents(context, key)
+        val updated = contents.copy(
+            folders = contents.folders.filterNot { it == name },
+            items = contents.items.map { if (it.folder == name) it.copy(folder = "") else it }
+        )
+        save(context, key, updated)
+        return updated
     }
 
     fun add(
@@ -161,14 +193,21 @@ object VaultCrypto {
         val id = UUID.randomUUID().toString()
         val target = File(vaultDir(context), "$id.enc")
         encrypt(key, source, target)
+        val contents = contents(context, key)
         val item = VaultItem(id, name, target.length(), folder)
-        saveItems(context, key, items(context, key) + item)
+        val folders = if (folder.isNotEmpty() && !contents.folders.contains(folder)) {
+            (contents.folders + folder).sorted()
+        } else {
+            contents.folders
+        }
+        save(context, key, VaultContents(contents.items + item, folders))
         return item
     }
 
     fun remove(context: Context, key: SecretKey, id: String) {
         File(vaultDir(context), "$id.enc").delete()
-        saveItems(context, key, items(context, key).filterNot { it.id == id })
+        val contents = contents(context, key)
+        save(context, key, contents.copy(items = contents.items.filterNot { it.id == id }))
     }
 
     fun fileFor(context: Context, id: String): File = File(vaultDir(context), "$id.enc")

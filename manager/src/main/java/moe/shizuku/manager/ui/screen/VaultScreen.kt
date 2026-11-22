@@ -1,9 +1,12 @@
 package moe.shizuku.manager.ui.screen
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.view.WindowManager
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -55,6 +59,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import moe.shizuku.manager.vault.VaultContents
 import moe.shizuku.manager.vault.VaultCrypto
 import moe.shizuku.manager.vault.VaultItem
 import java.io.File
@@ -76,11 +81,21 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
     var password by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var entries by remember { mutableStateOf<List<VaultItem>>(emptyList()) }
+    var contents by remember { mutableStateOf(VaultContents()) }
     var folder by remember { mutableStateOf("") }
-    var newFolder by remember { mutableStateOf<String?>(null) }
+    var showNewFolder by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("") }
+
+    // No screenshots and no screen recording while the vault is on screen: the window is marked
+    // secure for as long as this screen is composed, and the recents preview shows nothing.
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val window = view.context.findActivity()?.window
+        window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
 
     // Auto-lock: leaving the foreground drops the derived key, so the vault has to be unlocked
     // again rather than staying open in the background.
@@ -90,37 +105,60 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                 key = null
                 password = ""
                 confirm = ""
-                entries = emptyList()
+                contents = VaultContents()
                 folder = ""
+                status = null
+                error = null
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    fun refresh(current: SecretKey) {
+        scope.launch {
+            contents = withContext(Dispatchers.IO) { VaultCrypto.contents(context, current) }
+        }
+    }
+
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val current = key
-        if (uri == null || current == null) return@rememberLauncherForActivityResult
+        if (uri == null) {
+            status = "No file was chosen"
+            return@rememberLauncherForActivityResult
+        }
+        if (current == null) {
+            error = "The vault locked itself, unlock it again"
+            return@rememberLauncherForActivityResult
+        }
         busy = true
         error = null
+        status = null
         val target = folder
         scope.launch {
-            val failure = withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val name = displayName(context, uri) ?: "file"
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         VaultCrypto.add(context, current, name, target, input)
                     } ?: throw IllegalStateException("The file could not be opened")
-                }.exceptionOrNull()
+                }
             }
-            if (failure != null) error = failure.message ?: "Could not add the file"
-            entries = withContext(Dispatchers.IO) { VaultCrypto.items(context, current) }
             busy = false
+            result.onSuccess { item ->
+                status = "${item.name} added to the vault"
+                contents = withContext(Dispatchers.IO) { VaultCrypto.contents(context, current) }
+            }.onFailure {
+                error = it.message ?: it.javaClass.simpleName
+            }
         }
     }
 
-    val folders = entries.map { it.folder }.filter { it.isNotEmpty() }.distinct().sorted()
-    val visible = if (folder.isEmpty()) entries else entries.filter { it.folder == folder }
+    val visible = if (folder.isEmpty()) {
+        contents.items
+    } else {
+        contents.items.filter { it.folder == folder }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)) {
@@ -152,6 +190,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                 configured = true
                                 password = ""
                                 confirm = ""
+                                status = "Vault created. Set folders and add files."
                             }
                         }
                     )
@@ -162,6 +201,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                         onPassword = { password = it },
                         onUnlock = {
                             busy = true
+                            error = null
                             scope.launch {
                                 val unlocked = withContext(Dispatchers.Default) {
                                     VaultCrypto.unlock(context, password)
@@ -171,10 +211,9 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                     error = "Wrong master password"
                                 } else {
                                     key = unlocked
-                                    error = null
                                     password = ""
-                                    entries = withContext(Dispatchers.IO) {
-                                        VaultCrypto.items(context, unlocked)
+                                    contents = withContext(Dispatchers.IO) {
+                                        VaultCrypto.contents(context, unlocked)
                                     }
                                 }
                             }
@@ -190,7 +229,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                     label = { Text("All") }
                                 )
                             }
-                            items(folders, key = { it }) { name ->
+                            items(contents.folders, key = { it }) { name ->
                                 FilterChip(
                                     selected = folder == name,
                                     onClick = { folder = name },
@@ -200,7 +239,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                             item {
                                 FilterChip(
                                     selected = false,
-                                    onClick = { newFolder = "" },
+                                    onClick = { showNewFolder = true },
                                     label = { Text("+ Folder") },
                                     leadingIcon = {
                                         Icon(
@@ -212,13 +251,27 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                             }
                         }
                         Spacer(Modifier.height(8.dp))
-                        Text(
-                            when {
-                                visible.isEmpty() -> "Nothing in this folder yet"
-                                else -> "${visible.size} file(s), encrypted with AES-256"
-                            },
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                when {
+                                    visible.isEmpty() -> "Nothing in this folder yet"
+                                    else -> "${visible.size} file(s), AES-256 encrypted"
+                                },
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Button(
+                                onClick = { picker.launch(arrayOf("*/*")) },
+                                enabled = !busy
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (busy) "Adding..." else "Add file")
+                            }
+                        }
                         Spacer(Modifier.height(4.dp))
                         LazyColumn(modifier = Modifier.fillMaxSize()) {
                             items(visible, key = { it.id }) { item ->
@@ -226,10 +279,11 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(modifier = Modifier.fillMaxWidth(0.68f)) {
+                                    Column(modifier = Modifier.fillMaxWidth(0.62f)) {
                                         Text(item.name, style = MaterialTheme.typography.bodyLarge)
                                         Text(
-                                            readableSize(item.size),
+                                            if (item.folder.isEmpty()) readableSize(item.size)
+                                            else "${item.folder} · ${readableSize(item.size)}",
                                             style = MaterialTheme.typography.bodySmall
                                         )
                                     }
@@ -258,7 +312,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                                 withContext(Dispatchers.IO) {
                                                     VaultCrypto.remove(context, current, item.id)
                                                 }
-                                                entries = VaultCrypto.items(context, current)
+                                                contents = VaultCrypto.contents(context, current)
                                             }
                                         }
                                     ) {
@@ -270,6 +324,10 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                     }
                 }
 
+                status?.let {
+                    Spacer(Modifier.height(12.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall)
+                }
                 error?.let {
                     Spacer(Modifier.height(12.dp))
                     Text(it, color = MaterialTheme.colorScheme.error)
@@ -282,16 +340,16 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                 onClick = { picker.launch(arrayOf("*/*")) },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 24.dp, bottom = bottomPadding + 24.dp)
+                    .padding(end = 24.dp, bottom = bottomPadding + 96.dp)
             ) {
                 Icon(Icons.Filled.Add, contentDescription = "Add files")
             }
         }
     }
 
-    newFolder?.let { _ ->
+    if (showNewFolder) {
         AlertDialog(
-            onDismissRequest = { newFolder = null; folderName = "" },
+            onDismissRequest = { showNewFolder = false; folderName = "" },
             title = { Text("New folder") },
             text = {
                 OutlinedTextField(
@@ -304,15 +362,26 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
             confirmButton = {
                 TextButton(
                     onClick = {
+                        val current = key
                         val name = folderName.trim()
-                        if (name.isNotEmpty()) folder = name
-                        newFolder = null
+                        if (current != null && name.isNotEmpty()) {
+                            scope.launch {
+                                contents = withContext(Dispatchers.IO) {
+                                    VaultCrypto.addFolder(context, current, name)
+                                }
+                                folder = name
+                                status = "Folder \"$name\" created"
+                            }
+                        }
+                        showNewFolder = false
                         folderName = ""
                     }
                 ) { Text("Create") }
             },
             dismissButton = {
-                TextButton(onClick = { newFolder = null; folderName = "" }) { Text("Cancel") }
+                TextButton(onClick = { showNewFolder = false; folderName = "" }) {
+                    Text("Cancel")
+                }
             }
         )
     }
@@ -379,6 +448,15 @@ private fun UnlockVault(
         enabled = !busy && password.isNotEmpty(),
         modifier = Modifier.fillMaxWidth()
     ) { Text(if (busy) "Checking..." else "Unlock") }
+}
+
+private fun Context.findActivity(): Activity? {
+    var current: Context = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return current as? Activity
 }
 
 private fun displayName(context: Context, uri: Uri): String? =
