@@ -1215,7 +1215,7 @@ private fun TelevisionTabs(
                         onFullscreenChange = {}
                     )
                     3 -> LabsScreen(bottomPadding = 0.dp, onOpenDetail = onOpenDetail)
-                    4 -> VaultScreen(bottomPadding = bottomPadding)
+                    4 -> VaultScreen(bottomPadding = 0.dp)
 
                     5 -> SettingsScreen(
                         bottomPadding = 0.dp,
