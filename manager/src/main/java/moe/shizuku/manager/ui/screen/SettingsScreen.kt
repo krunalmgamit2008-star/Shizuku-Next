@@ -2,6 +2,7 @@ package moe.shizuku.manager.ui.screen
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.outlined.Contrast
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.DeveloperMode
 import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
@@ -1289,6 +1291,23 @@ fun SettingsScreen(
                             leadingContent = { SettingsIcon(Icons.Outlined.Code) },
                             headlineContent = { Text(stringResource(R.string.about_package)) },
                             supportingContent = { Text(context.packageName) }
+                        )
+                    }
+                    item {
+                        SegmentedListItem(
+                            centerSlots = true,
+                            leadingContent = { SettingsIcon(Icons.Outlined.Email) },
+                            headlineContent = { Text("Contact") },
+                            supportingContent = { Text("krunal.m.gamitl3o8@zohomail.in") },
+                            onClick = {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_SENDTO).apply {
+                                            data = Uri.parse("mailto:krunal.m.gamitl3o8@zohomail.in")
+                                        }
+                                    }
+                                }
+                            }
                         )
                     }
                     item {
