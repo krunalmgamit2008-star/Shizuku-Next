@@ -8,6 +8,7 @@ import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,18 +18,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +49,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -50,14 +61,15 @@ import java.io.File
 import javax.crypto.SecretKey
 
 /**
- * The vault: a master password unlocks a list of files that are stored AES-256 encrypted. Nothing
- * leaves the device, and the key is derived from the password on unlock, so the files cannot be
- * read without it - not by another app, not from a backup.
+ * The vault: a master password unlocks files stored AES-256 encrypted, with the index encrypted
+ * too so even the names need the password. The key is derived on unlock and dropped when the app
+ * leaves the foreground, so coming back asks for the password again.
  */
 @Composable
-fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit) {
+fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var configured by remember { mutableStateOf(VaultCrypto.isConfigured(context)) }
     var key by remember { mutableStateOf<SecretKey?>(null) }
@@ -66,68 +78,70 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var entries by remember { mutableStateOf<List<VaultItem>>(emptyList()) }
+    var folder by remember { mutableStateOf("") }
+    var newFolder by remember { mutableStateOf<String?>(null) }
+    var folderName by remember { mutableStateOf("") }
+
+    // Auto-lock: leaving the foreground drops the derived key, so the vault has to be unlocked
+    // again rather than staying open in the background.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                key = null
+                password = ""
+                confirm = ""
+                entries = emptyList()
+                folder = ""
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val current = key
         if (uri == null || current == null) return@rememberLauncherForActivityResult
         busy = true
         error = null
+        val target = folder
         scope.launch {
             val failure = withContext(Dispatchers.IO) {
                 runCatching {
                     val name = displayName(context, uri) ?: "file"
                     context.contentResolver.openInputStream(uri)?.use { input ->
-                        VaultCrypto.add(context, current, name, input)
+                        VaultCrypto.add(context, current, name, target, input)
                     } ?: throw IllegalStateException("The file could not be opened")
                 }.exceptionOrNull()
             }
             if (failure != null) error = failure.message ?: "Could not add the file"
-            entries = withContext(Dispatchers.IO) { VaultCrypto.items(context) }
+            entries = withContext(Dispatchers.IO) { VaultCrypto.items(context, current) }
             busy = false
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            }
-            Text("Vault", style = MaterialTheme.typography.headlineSmall)
-        }
+    val folders = entries.map { it.folder }.filter { it.isNotEmpty() }.distinct().sorted()
+    val visible = if (folder.isEmpty()) entries else entries.filter { it.folder == folder }
 
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
-            when {
-                !configured -> {
-                    Text(
-                        "Set a master password. Files are encrypted with AES-256 and the key comes " +
-                            "from this password, so keep it safe - without it the files cannot be " +
-                            "opened again.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Master password") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = confirm,
-                        onValueChange = { confirm = it },
-                        label = { Text("Repeat password") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Button(
-                        onClick = {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                Text("Vault", style = MaterialTheme.typography.headlineSmall)
+            }
+
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                when {
+                    !configured -> SetupVault(
+                        password = password,
+                        confirm = confirm,
+                        onPassword = { password = it },
+                        onConfirm = { confirm = it },
+                        onCreate = {
                             error = when {
                                 password.length < 6 -> "Use at least 6 characters"
                                 password != confirm -> "The two passwords do not match"
@@ -139,28 +153,14 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit) {
                                 password = ""
                                 confirm = ""
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Create vault") }
-                }
+                        }
+                    )
 
-                key == null -> {
-                    Text(
-                        "Unlock the vault with your master password.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Master password") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Button(
-                        onClick = {
+                    key == null -> UnlockVault(
+                        password = password,
+                        busy = busy,
+                        onPassword = { password = it },
+                        onUnlock = {
                             busy = true
                             scope.launch {
                                 val unlocked = withContext(Dispatchers.Default) {
@@ -174,88 +174,211 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit) {
                                     error = null
                                     password = ""
                                     entries = withContext(Dispatchers.IO) {
-                                        VaultCrypto.items(context)
+                                        VaultCrypto.items(context, unlocked)
                                     }
                                 }
                             }
-                        },
-                        enabled = !busy && password.isNotEmpty(),
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(if (busy) "Checking..." else "Unlock") }
+                        }
+                    )
+
+                    else -> {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                FilterChip(
+                                    selected = folder.isEmpty(),
+                                    onClick = { folder = "" },
+                                    label = { Text("All") }
+                                )
+                            }
+                            items(folders, key = { it }) { name ->
+                                FilterChip(
+                                    selected = folder == name,
+                                    onClick = { folder = name },
+                                    label = { Text(name) }
+                                )
+                            }
+                            item {
+                                FilterChip(
+                                    selected = false,
+                                    onClick = { newFolder = "" },
+                                    label = { Text("+ Folder") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Filled.CreateNewFolder,
+                                            contentDescription = null
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            when {
+                                visible.isEmpty() -> "Nothing in this folder yet"
+                                else -> "${visible.size} file(s), encrypted with AES-256"
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(visible, key = { it.id }) { item ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.fillMaxWidth(0.68f)) {
+                                        Text(item.name, style = MaterialTheme.typography.bodyLarge)
+                                        Text(
+                                            readableSize(item.size),
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                    Button(
+                                        onClick = {
+                                            val current = key ?: return@Button
+                                            busy = true
+                                            scope.launch {
+                                                val failure = withContext(Dispatchers.IO) {
+                                                    runCatching { openItem(context, current, item) }
+                                                        .exceptionOrNull()
+                                                }
+                                                if (failure != null) {
+                                                    error = failure.message
+                                                        ?: "Could not open the file"
+                                                }
+                                                busy = false
+                                            }
+                                        },
+                                        enabled = !busy
+                                    ) { Text("Open") }
+                                    IconButton(
+                                        onClick = {
+                                            val current = key ?: return@IconButton
+                                            scope.launch {
+                                                withContext(Dispatchers.IO) {
+                                                    VaultCrypto.remove(context, current, item.id)
+                                                }
+                                                entries = VaultCrypto.items(context, current)
+                                            }
+                                        }
+                                    ) {
+                                        Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
-                else -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            if (entries.isEmpty()) "No files in the vault yet"
-                            else "${entries.size} file(s), all encrypted",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Button(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !busy) {
-                            Icon(Icons.Filled.Add, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Add")
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(entries, key = { it.id }) { item ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.fillMaxWidth(0.72f)) {
-                                    Text(item.name, style = MaterialTheme.typography.bodyLarge)
-                                    Text(
-                                        readableSize(item.size),
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                                Button(
-                                    onClick = {
-                                        val current = key ?: return@Button
-                                        busy = true
-                                        scope.launch {
-                                            val failure = withContext(Dispatchers.IO) {
-                                                runCatching { openItem(context, current, item) }
-                                                    .exceptionOrNull()
-                                            }
-                                            if (failure != null) {
-                                                error = failure.message ?: "Could not open the file"
-                                            }
-                                            busy = false
-                                        }
-                                    },
-                                    enabled = !busy
-                                ) { Text("Open") }
-                                IconButton(
-                                    onClick = {
-                                        scope.launch {
-                                            withContext(Dispatchers.IO) {
-                                                VaultCrypto.remove(context, item.id)
-                                            }
-                                            entries = VaultCrypto.items(context)
-                                        }
-                                    }
-                                ) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Delete")
-                                }
-                            }
-                        }
-                    }
+                error?.let {
+                    Spacer(Modifier.height(12.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error)
                 }
             }
+        }
 
-            error?.let {
-                Spacer(Modifier.height(12.dp))
-                Text(it, color = MaterialTheme.colorScheme.error)
+        if (key != null) {
+            FloatingActionButton(
+                onClick = { picker.launch(arrayOf("*/*")) },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 24.dp, bottom = bottomPadding + 24.dp)
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = "Add files")
             }
         }
     }
+
+    newFolder?.let { _ ->
+        AlertDialog(
+            onDismissRequest = { newFolder = null; folderName = "" },
+            title = { Text("New folder") },
+            text = {
+                OutlinedTextField(
+                    value = folderName,
+                    onValueChange = { folderName = it },
+                    label = { Text("Folder name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val name = folderName.trim()
+                        if (name.isNotEmpty()) folder = name
+                        newFolder = null
+                        folderName = ""
+                    }
+                ) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { newFolder = null; folderName = "" }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SetupVault(
+    password: String,
+    confirm: String,
+    onPassword: (String) -> Unit,
+    onConfirm: (String) -> Unit,
+    onCreate: () -> Unit
+) {
+    Text(
+        "Set a master password. Files are encrypted with AES-256 and the key comes from this " +
+            "password, so keep it safe - without it the files cannot be opened again.",
+        style = MaterialTheme.typography.bodyMedium
+    )
+    Spacer(Modifier.height(16.dp))
+    OutlinedTextField(
+        value = password,
+        onValueChange = onPassword,
+        label = { Text("Master password") },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        modifier = Modifier.fillMaxWidth()
+    )
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(
+        value = confirm,
+        onValueChange = onConfirm,
+        label = { Text("Repeat password") },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        modifier = Modifier.fillMaxWidth()
+    )
+    Spacer(Modifier.height(16.dp))
+    Button(onClick = onCreate, modifier = Modifier.fillMaxWidth()) { Text("Create vault") }
+}
+
+@Composable
+private fun UnlockVault(
+    password: String,
+    busy: Boolean,
+    onPassword: (String) -> Unit,
+    onUnlock: () -> Unit
+) {
+    Text(
+        "Unlock the vault with your master password.",
+        style = MaterialTheme.typography.bodyMedium
+    )
+    Spacer(Modifier.height(16.dp))
+    OutlinedTextField(
+        value = password,
+        onValueChange = onPassword,
+        label = { Text("Master password") },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        modifier = Modifier.fillMaxWidth()
+    )
+    Spacer(Modifier.height(16.dp))
+    Button(
+        onClick = onUnlock,
+        enabled = !busy && password.isNotEmpty(),
+        modifier = Modifier.fillMaxWidth()
+    ) { Text(if (busy) "Checking..." else "Unlock") }
 }
 
 private fun displayName(context: Context, uri: Uri): String? =

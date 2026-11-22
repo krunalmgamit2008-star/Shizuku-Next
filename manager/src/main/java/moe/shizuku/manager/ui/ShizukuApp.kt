@@ -45,11 +45,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Layers
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Badge
@@ -274,6 +276,7 @@ private val tabs = listOf(
     // own before, which is a lot of the bar for two screens that are mostly a list you read
     // once, and it also made the shell's own session the price of switching to Settings.
     Tab(R.string.tab_labs, Icons.Filled.Science, Icons.Outlined.Science),
+    Tab(R.string.tab_vault, Icons.Filled.Lock, Icons.Outlined.Lock),
     Tab(R.string.tab_settings, Icons.Filled.Settings, Icons.Outlined.Settings),
 )
 
@@ -696,7 +699,9 @@ private fun MainTabs(
                         onFullscreenChange = { modulesFullscreen = it }
                     )
                     3 -> LabsScreen(bottomPadding = bottomPadding, onOpenDetail = onOpenDetail)
-                    4 -> SettingsScreen(
+                    4 -> VaultScreen(bottomPadding = bottomPadding)
+
+                    5 -> SettingsScreen(
                         bottomPadding = bottomPadding,
                         onOpenDetail = onOpenDetail,
                         onRunSetup = onRunSetup,
@@ -1210,7 +1215,9 @@ private fun TelevisionTabs(
                         onFullscreenChange = {}
                     )
                     3 -> LabsScreen(bottomPadding = 0.dp, onOpenDetail = onOpenDetail)
-                    4 -> SettingsScreen(
+                    4 -> VaultScreen(bottomPadding = bottomPadding)
+
+                    5 -> SettingsScreen(
                         bottomPadding = 0.dp,
                         onOpenDetail = onOpenDetail,
                         onRunSetup = onRunSetup
