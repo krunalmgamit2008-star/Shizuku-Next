@@ -1305,7 +1305,7 @@ fun SettingsScreen(
                                         Intent(Intent.ACTION_SENDTO).apply {
                                             data = Uri.parse("mailto:krunal.m.gamitl3o8@zohomail.in")
                                         }
-                                    }
+                                    )
                                 }
                             }
                         )
