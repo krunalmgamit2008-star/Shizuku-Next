@@ -10,6 +10,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.view.WindowManager
 import android.webkit.MimeTypeMap
+import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -59,6 +60,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -98,6 +100,7 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
     // that, and locking then would drop the key the picker is about to need.
     var external by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
+    var playing by remember { mutableStateOf<File?>(null) }
     var folderName by remember { mutableStateOf("") }
 
     // No screenshots and no screen recording while the vault is on screen: the window is marked
@@ -305,7 +308,18 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                                             val current = key ?: return@Button
                                             busy = true
                                             scope.launch {
-                                                if (isImage(item.name)) {
+                                                if (isMedia(item.name)) {
+                                                    val file = withContext(Dispatchers.IO) {
+                                                        runCatching {
+                                                            decryptToCache(context, current, item)
+                                                        }.getOrNull()
+                                                    }
+                                                    if (file == null) {
+                                                        error = "This file could not be opened"
+                                                    } else {
+                                                        playing = file
+                                                    }
+                                                } else if (isImage(item.name)) {
                                                     // Images are shown inside the vault: handing them
                                                     // to a gallery would leave a decrypted copy in
                                                     // another app's hands.
@@ -365,6 +379,31 @@ fun VaultScreen(bottomPadding: Dp, onBack: () -> Unit = {}) {
                 error?.let {
                     Spacer(Modifier.height(12.dp))
                     Text(it, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
+        playing?.let { file ->
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                AndroidView(
+                    factory = { ctx ->
+                        VideoView(ctx).apply {
+                            setVideoPath(file.absolutePath)
+                            setOnPreparedListener { it.isLooping = false }
+                            start()
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+                IconButton(
+                    onClick = { playing = null },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Close",
+                        tint = Color.White
+                    )
                 }
             }
         }
@@ -529,6 +568,14 @@ private fun readableSize(bytes: Long): String = when {
 private fun mimeOf(name: String): String {
     val extension = name.substringAfterLast('.', "").lowercase()
     return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
+}
+
+private fun isMedia(name: String): Boolean {
+    val extension = name.substringAfterLast('.', "").lowercase()
+    return extension in setOf(
+        "mp4", "mkv", "webm", "3gp", "mov", "avi", "m4v",
+        "mp3", "m4a", "aac", "ogg", "opus", "wav", "flac"
+    )
 }
 
 private fun isImage(name: String): Boolean {
