@@ -64,6 +64,7 @@ import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material.icons.outlined.WifiTethering
 import moe.shizuku.manager.ui.component.AppAlertDialog
+import moe.shizuku.manager.ui.component.iconPaletteColor
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -1985,7 +1986,7 @@ private fun SettingsIcon(icon: ImageVector) {
     Icon(
         imageVector = icon,
         contentDescription = null,
-        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        tint = iconPaletteColor(icon.name),
         modifier = Modifier.size(24.dp)
     )
 }
