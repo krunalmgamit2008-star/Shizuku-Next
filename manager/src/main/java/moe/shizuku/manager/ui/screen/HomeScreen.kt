@@ -943,23 +943,6 @@ fun HomeScreen(bottomPadding: Dp) {
                 }
             }
 
-            item {
-                // The other half of the About row in Settings, and at the end of the page
-                // rather than the top: nobody opens this app to be asked, and the person who
-                // has scrolled past the device details is the one who has got something out
-                // of it. Same page, same way of opening it.
-                ExpressiveCard(
-                    icon = Icons.Rounded.Coffee,
-                    title = stringResource(R.string.settings_support_coffee),
-                    body = stringResource(R.string.home_support_body),
-                    onClick = {
-                        CustomTabsHelper.launchUrlOrCopy(
-                            context,
-                            context.getString(R.string.buymeacoffee_url)
-                        )
-                    }
-                )
-            }
             }
 
             ScrollToTopButton(

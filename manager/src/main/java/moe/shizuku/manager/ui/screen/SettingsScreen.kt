@@ -1313,26 +1313,6 @@ fun SettingsScreen(
                     item {
                         SegmentedListItem(
                             centerSlots = true,
-                            leadingContent = { SettingsIcon(Icons.Outlined.SystemUpdate) },
-                            headlineContent = { Text(stringResource(R.string.check_for_updates)) },
-                            supportingContent = {
-                                Text(
-                                    when (updateMode) {
-                                        ShizukuSettings.UpdateMode.OFF -> stringResource(R.string.off)
-                                        ShizukuSettings.UpdateMode.BETA -> stringResource(R.string.settings_update_beta)
-                                        else -> stringResource(R.string.settings_update_stable)
-                                    }
-                                )
-                            },
-                            trailingContent = {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                            },
-                            onClick = { updateDialog = true }
-                        )
-                    }
-                    item {
-                        SegmentedListItem(
-                            centerSlots = true,
                             leadingContent = { SettingsIcon(Icons.Outlined.MenuBook) },
                             headlineContent = { Text(stringResource(R.string.settings_help)) },
                             trailingContent = {
@@ -1375,29 +1355,6 @@ fun SettingsScreen(
                                 CustomTabsHelper.launchUrlOrCopy(
                                     context,
                                     context.getString(R.string.crowdin_url)
-                                )
-                            }
-                        )
-                    }
-                    item {
-                        SegmentedListItem(
-                            centerSlots = true,
-                            leadingContent = { SettingsIcon(Icons.Outlined.Coffee) },
-                            headlineContent = {
-                                Text(stringResource(R.string.settings_support_coffee))
-                            },
-                            // Says what the tap does, because the row is a link out of the app
-                            // rather than another screen of it.
-                            supportingContent = {
-                                Text(stringResource(R.string.settings_support_coffee_note))
-                            },
-                            trailingContent = {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                            },
-                            onClick = {
-                                CustomTabsHelper.launchUrlOrCopy(
-                                    context,
-                                    context.getString(R.string.buymeacoffee_url)
                                 )
                             }
                         )
